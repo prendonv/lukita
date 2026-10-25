@@ -1,0 +1,18 @@
+{
+  "name": "Lukita — Control de Gastos Local-First",
+  "short_name": "Lukita",
+  "description": "App de gastos personal 100% offline con respaldo directo a tu Google Drive y Sheets.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0B0F17",
+  "theme_color": "#10B981",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "./lukita-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
