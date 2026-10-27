@@ -145,7 +145,8 @@ export const createLukitaSpreadsheet = async (accessToken) => {
 };
 
 /**
- * Syncs local expenses to the target Google Sheet, avoiding duplicates by checking column A (ID Registro).
+ * Syncs local expenses to the target Google Sheet as a true mirror of local state:
+ * adds new expenses, updates edited expenses, and deletes rows that were removed in the app.
  */
 export const syncExpensesToGoogleSheet = async ({
   accessToken,
@@ -163,44 +164,28 @@ export const syncExpensesToGoogleSheet = async ({
     targetSheetUrl = created.spreadsheetUrl;
   }
 
-  // Fetch existing IDs in Column A so we never duplicate rows
-  const readRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${targetSheetId}/values/Gastos!A:A`,
-    {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    }
-  );
-
-  let existingIds = new Set();
-  if (readRes.ok) {
-    const readData = await readRes.json();
-    const rows = readData.values || [];
-    rows.forEach((row) => {
-      if (row[0]) existingIds.add(String(row[0]));
-    });
-  }
-
   const catMap = new Map(categories.map((c) => [c.id, c]));
   const payMap = new Map(paymentMethods.map((p) => [p.id, p]));
 
-  const newExpenses = expenses.filter((exp) => !existingIds.has(exp.id));
-
-  if (newExpenses.length === 0) {
-    return {
-      syncedCount: 0,
-      spreadsheetId: targetSheetId,
-      spreadsheetUrl:
-        targetSheetUrl || `https://docs.google.com/spreadsheets/d/${targetSheetId}`,
-      syncedIds: expenses.map((e) => e.id)
-    };
-  }
-
   // Sort chronologically for clean spreadsheet reading
-  const sortedForSheet = [...newExpenses].sort((a, b) =>
-    a.date.localeCompare(b.date)
-  );
+  const sortedForSheet = [...expenses].sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return (a.createdAt || '').localeCompare(b.createdAt || '');
+  });
 
-  const valuesToAppend = sortedForSheet.map((exp) => {
+  const headerRow = [
+    'ID Registro',
+    'Fecha',
+    'Monto',
+    'Moneda',
+    'Categoría',
+    'Subcategoría',
+    'Método de Pago',
+    'Nota',
+    'Fecha Creación ISO'
+  ];
+
+  const rowsData = sortedForSheet.map((exp) => {
     const category = catMap.get(exp.categoryId);
     const subcategory = category?.subcategories?.find(
       (s) => s.id === exp.subcategoryId
@@ -220,28 +205,49 @@ export const syncExpensesToGoogleSheet = async ({
     ];
   });
 
-  const appendRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${targetSheetId}/values/Gastos!A1:append?valueInputOption=USER_ENTERED`,
+  // 1. Clear the existing "Gastos!A1:I" range so deleted expenses are removed from the sheet
+  const clearRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${targetSheetId}/values/Gastos!A1:I:clear`,
     {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
+      }
+    }
+  );
+
+  if (!clearRes.ok) {
+    throw new Error(
+      'Error al limpiar la hoja en Google Sheets. Revisa que la pestaña "Gastos" exista en tu hoja de cálculo.'
+    );
+  }
+
+  // 2. Write the updated header + all current local expenses
+  const updateRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${targetSheetId}/values/Gastos!A1?valueInputOption=USER_ENTERED`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        values: valuesToAppend
+        range: 'Gastos!A1',
+        majorDimension: 'ROWS',
+        values: [headerRow, ...rowsData]
       })
     }
   );
 
-  if (!appendRes.ok) {
+  if (!updateRes.ok) {
     throw new Error(
-      'Error al escribir filas en Google Sheets. Revisa que la pestaña "Gastos" exista en tu hoja de cálculo.'
+      'Error al actualizar filas en Google Sheets. Revisa que la pestaña "Gastos" exista en tu hoja de cálculo.'
     );
   }
 
   return {
-    syncedCount: newExpenses.length,
+    syncedCount: expenses.length,
     spreadsheetId: targetSheetId,
     spreadsheetUrl:
       targetSheetUrl || `https://docs.google.com/spreadsheets/d/${targetSheetId}`,

@@ -123,17 +123,10 @@ export const SettingsAndSyncView = () => {
 
       await markExpensesSynced(result.syncedIds);
 
-      if (result.syncedCount > 0) {
-        showToast(
-          `¡Listo! Se sincronizaron ${result.syncedCount} gastos nuevos en tu Google Sheets.`,
-          'success'
-        );
-      } else {
-        showToast(
-          'Tu hoja de Google Sheets ya está al día (sin gastos pendientes).',
-          'info'
-        );
-      }
+      showToast(
+        `¡Hoja sincronizada! Ahora refleja exactamente tus ${result.syncedCount} gastos locales.`,
+        'success'
+      );
     } catch (err) {
       showToast(err.message || 'Error al sincronizar con Google Sheets', 'error');
     } finally {
