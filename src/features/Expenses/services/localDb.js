@@ -134,6 +134,23 @@ export const bootstrapLocalData = async () => {
   if (categories.length === 0) {
     categories = [...DEFAULT_CATEGORIES];
     await putBulkInStore(STORES.CATEGORIES, categories);
+  } else {
+    // Ensure custom categories Animalitos & Inversiones exist
+    let categoriesUpdated = false;
+    DEFAULT_CATEGORIES.forEach((defCat) => {
+      const exists = categories.some(
+        (c) =>
+          c.id === defCat.id ||
+          c.name.toLowerCase() === defCat.name.toLowerCase()
+      );
+      if (!exists) {
+        categories.unshift(defCat);
+        categoriesUpdated = true;
+      }
+    });
+    if (categoriesUpdated) {
+      await putBulkInStore(STORES.CATEGORIES, categories, true);
+    }
   }
 
   if (paymentMethods.length === 0) {
@@ -150,12 +167,21 @@ export const bootstrapLocalData = async () => {
     }
   }
 
-  // Seed one welcome editable sample if brand new installation
-  const hasSeededFlag = localStorage.getItem('lukita_seeded_v1');
-  if (!hasSeededFlag && expenses.length === 0) {
-    const sample = getSampleInitialExpenses();
-    await putBulkInStore(STORES.EXPENSES, sample);
-    expenses = sample;
+  // Seed initial or recovered user expenses if missing
+  const hasRestoredV2 = localStorage.getItem('lukita_restored_v2');
+  if (!hasRestoredV2) {
+    const recoveredExpenses = getSampleInitialExpenses();
+    // Remove the dummy welcome sample if present
+    expenses = expenses.filter((e) => e.id !== 'exp_welcome_1');
+
+    const existingIds = new Set(expenses.map((e) => e.id));
+    for (const rec of recoveredExpenses) {
+      if (!existingIds.has(rec.id)) {
+        expenses.push(rec);
+      }
+    }
+    await putBulkInStore(STORES.EXPENSES, expenses, true);
+    localStorage.setItem('lukita_restored_v2', 'true');
     localStorage.setItem('lukita_seeded_v1', 'true');
   }
 

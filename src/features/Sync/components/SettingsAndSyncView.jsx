@@ -209,6 +209,10 @@ export const SettingsAndSyncView = () => {
             existingPaymentMethods: paymentMethods
           });
 
+          const resolvedSheetId =
+            sheetRecovered.spreadsheetId || targetSheetId;
+          setSheetIdInput(resolvedSheetId);
+
           await restoreBackupData({
             expenses: sheetRecovered.expenses,
             categories: sheetRecovered.categories,
@@ -216,8 +220,8 @@ export const SettingsAndSyncView = () => {
             settings: {
               ...settings,
               googleClientId: activeClientId,
-              googleSpreadsheetId: targetSheetId,
-              googleSpreadsheetUrl: `https://docs.google.com/spreadsheets/d/${targetSheetId}`
+              googleSpreadsheetId: resolvedSheetId,
+              googleSpreadsheetUrl: `https://docs.google.com/spreadsheets/d/${resolvedSheetId}`
             }
           });
 

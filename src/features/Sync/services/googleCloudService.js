@@ -370,30 +370,54 @@ export const importExpensesFromGoogleSheet = async ({
   existingCategories = [],
   existingPaymentMethods = []
 }) => {
-  if (!spreadsheetId || !spreadsheetId.trim()) {
-    throw new Error(
-      'Ingresa el ID de tu Hoja de Google Sheets para importar tus registros.'
+  const readSheetRows = async (sheetId) => {
+    const res = await fetch(
+      `https://sheets.googleapis.com/v4/spreadsheets/${sheetId.trim()}/values/Gastos!A2:I?valueRenderOption=FORMATTED_VALUE`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      }
     );
-  }
+    if (!res.ok) return null;
+    const json = await res.json();
+    return json.values || [];
+  };
 
-  const readRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId.trim()}/values/Gastos!A2:I`,
-    {
+  let targetId = spreadsheetId ? spreadsheetId.trim() : '';
+  let rows = targetId ? await readSheetRows(targetId) : null;
+
+  // If the specified sheet has <= 1 row (e.g., an empty test sheet), search Drive for all
+  // "Lukita — Control de Gastos" spreadsheets and pick the one with the most rows!
+  if (!rows || rows.length <= 1) {
+    const searchUrl = new URL('https://www.googleapis.com/drive/v3/files');
+    searchUrl.searchParams.set(
+      'q',
+      `name contains 'Lukita' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false`
+    );
+    searchUrl.searchParams.set('orderBy', 'modifiedTime desc');
+    searchUrl.searchParams.set('fields', 'files(id, name)');
+
+    const searchRes = await fetch(searchUrl.toString(), {
       headers: { Authorization: `Bearer ${accessToken}` }
-    }
-  );
+    });
 
-  if (!readRes.ok) {
-    throw new Error(
-      'No se pudo leer la hoja de cálculo en Google Sheets. Verifica el ID de la hoja.'
-    );
+    if (searchRes.ok) {
+      const searchData = await searchRes.json();
+      const candidateFiles = searchData.files || [];
+
+      for (const file of candidateFiles) {
+        const candidateRows = await readSheetRows(file.id);
+        if (candidateRows && (!rows || candidateRows.length > rows.length)) {
+          rows = candidateRows;
+          targetId = file.id;
+        }
+      }
+    }
   }
 
-  const data = await readRes.json();
-  const rows = data.values || [];
-
-  if (rows.length === 0) {
-    throw new Error('La hoja de Google Sheets no tiene filas de gastos registradas.');
+  if (!rows || rows.length === 0) {
+    throw new Error(
+      'No encontramos filas de gastos en tu hoja de cálculo de Google Sheets.'
+    );
   }
 
   const categories = existingCategories.map((c) => ({
@@ -511,6 +535,7 @@ export const importExpensesFromGoogleSheet = async ({
   });
 
   return {
+    spreadsheetId: targetId,
     expenses: importedExpenses,
     categories,
     paymentMethods
