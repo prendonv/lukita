@@ -20,9 +20,14 @@ document.addEventListener(
 // Register Offline Service Worker for 100% Local-First iPhone PWA support
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {
-      // Fail silently if service worker registration is restricted
-    });
+    navigator.serviceWorker
+      .register('./sw.js', { updateViaCache: 'none' })
+      .then((reg) => {
+        reg.update();
+      })
+      .catch(() => {
+        // Fail silently if service worker registration is restricted
+      });
   });
 }
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lukita-offline-v3';
+const CACHE_NAME = 'lukita-offline-v4';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -31,6 +31,29 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
+  // For HTML navigation requests, always try Network First so new deployments
+  // never load a stale index.html pointing to old JS bundle hashes.
+  if (
+    event.request.mode === 'navigate' ||
+    event.request.destination === 'document'
+  ) {
+    event.respondWith(
+      fetch(event.request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          }
+          return networkResponse;
+        })
+        .catch(() =>
+          caches.match(event.request).then((res) => res || caches.match('./index.html'))
+        )
+    );
+    return;
+  }
+
+  // For static assets (JS, CSS, icons), use Cache First with Network Fallback & Cache Update
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       const fetchPromise = fetch(event.request)
