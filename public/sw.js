@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lukita-offline-v2';
+const CACHE_NAME = 'lukita-offline-v3';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',

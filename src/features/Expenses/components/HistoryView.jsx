@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import {
   CaretLeft,
   CaretRight,
+  CaretDown,
+  FunnelSimple,
   MagnifyingGlass,
   PencilSimple,
   Trash,
@@ -141,29 +143,22 @@ export const HistoryView = () => {
           />
         </div>
 
-        <div className={styles.categoryFilterRow}>
-          <button
-            type="button"
-            className={`${styles.filterPill} ${
-              categoryFilter === 'ALL' ? styles.filterPillActive : ''
-            }`}
-            onClick={() => setCategoryFilter('ALL')}
+        <div className={styles.categorySelectWrapper}>
+          <FunnelSimple size={16} weight="bold" className={styles.selectIconLeft} />
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className={styles.categorySelect}
+            aria-label="Filtrar por categoría"
           >
-            Todas
-          </button>
-          {categories.map((cat) => (
-            <button
-              key={cat.id}
-              type="button"
-              className={`${styles.filterPill} ${
-                categoryFilter === cat.id ? styles.filterPillActive : ''
-              }`}
-              onClick={() => setCategoryFilter(cat.id)}
-            >
-              <span>{cat.emoji}</span>
-              <span>{cat.name}</span>
-            </button>
-          ))}
+            <option value="ALL">Todas las categorías</option>
+            {categories.map((cat) => (
+              <option key={cat.id} value={cat.id}>
+                {cat.emoji} {cat.name}
+              </option>
+            ))}
+          </select>
+          <CaretDown size={15} weight="bold" className={styles.selectIconRight} />
         </div>
       </div>
 
