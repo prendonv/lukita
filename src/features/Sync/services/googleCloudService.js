@@ -361,6 +361,163 @@ export const downloadBackupFromGoogleDrive = async ({ accessToken }) => {
 };
 
 /**
+ * Reads all rows from the user's Google Sheet ("Gastos!A2:I") and reconstructs
+ * expenses, custom categories, subcategories, and payment methods into local state.
+ */
+export const importExpensesFromGoogleSheet = async ({
+  accessToken,
+  spreadsheetId,
+  existingCategories = [],
+  existingPaymentMethods = []
+}) => {
+  if (!spreadsheetId || !spreadsheetId.trim()) {
+    throw new Error(
+      'Ingresa el ID de tu Hoja de Google Sheets para importar tus registros.'
+    );
+  }
+
+  const readRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId.trim()}/values/Gastos!A2:I`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    }
+  );
+
+  if (!readRes.ok) {
+    throw new Error(
+      'No se pudo leer la hoja de cálculo en Google Sheets. Verifica el ID de la hoja.'
+    );
+  }
+
+  const data = await readRes.json();
+  const rows = data.values || [];
+
+  if (rows.length === 0) {
+    throw new Error('La hoja de Google Sheets no tiene filas de gastos registradas.');
+  }
+
+  const categories = existingCategories.map((c) => ({
+    ...c,
+    subcategories: [...(c.subcategories || [])]
+  }));
+  const paymentMethods = [...existingPaymentMethods];
+
+  const PALETTE = [
+    '#10B981',
+    '#3B82F6',
+    '#8B5CF6',
+    '#F59E0B',
+    '#EC4899',
+    '#06B6D4',
+    '#F43F5E',
+    '#14B8A6'
+  ];
+
+  const splitEmojiAndText = (rawStr, fallbackEmoji = '🏷️') => {
+    const trimmed = String(rawStr || '').trim();
+    if (!trimmed) return { emoji: fallbackEmoji, name: 'General' };
+    const parts = trimmed.split(' ');
+    if (parts.length > 1 && parts[0].length <= 4 && !/^[a-zA-Z0-9]+$/.test(parts[0])) {
+      return {
+        emoji: parts[0],
+        name: parts.slice(1).join(' ').trim()
+      };
+    }
+    return { emoji: fallbackEmoji, name: trimmed };
+  };
+
+  const importedExpenses = [];
+
+  rows.forEach((row, index) => {
+    const [
+      rawId,
+      rawDate,
+      rawAmount,
+      rawCurrency,
+      rawCategory,
+      rawSubcategory,
+      rawPayment,
+      rawNote,
+      rawCreatedAt
+    ] = row;
+
+    const cleanAmount = Number(String(rawAmount || '0').replace(/[^0-9.-]+/g, ''));
+    if (!cleanAmount || cleanAmount <= 0) return;
+
+    // 1. Resolve or create Category
+    const { emoji: catEmoji, name: catName } = splitEmojiAndText(rawCategory, '🏷️');
+    let category = categories.find(
+      (c) => c.name.toLowerCase() === catName.toLowerCase()
+    );
+
+    if (!category) {
+      category = {
+        id: `cat_imp_${Date.now()}_${index}`,
+        name: catName,
+        emoji: catEmoji,
+        color: PALETTE[categories.length % PALETTE.length],
+        subcategories: []
+      };
+      categories.push(category);
+    }
+
+    // 2. Resolve or create Subcategory if present
+    let subcategoryId = null;
+    const subName = String(rawSubcategory || '').trim();
+    if (subName) {
+      let sub = category.subcategories.find(
+        (s) => s.name.toLowerCase() === subName.toLowerCase()
+      );
+      if (!sub) {
+        sub = {
+          id: `sub_imp_${Date.now()}_${index}`,
+          name: subName
+        };
+        category.subcategories.push(sub);
+      }
+      subcategoryId = sub.id;
+    }
+
+    // 3. Resolve or create Payment Method
+    const { emoji: payIcon, name: payName } = splitEmojiAndText(rawPayment, '💳');
+    const normalizedPayName =
+      payName === 'Nequi / Transferencia' ? 'Transferencia' : payName;
+
+    let payment = paymentMethods.find(
+      (p) => p.name.toLowerCase() === normalizedPayName.toLowerCase()
+    );
+
+    if (!payment) {
+      payment = {
+        id: `pay_imp_${Date.now()}_${index}`,
+        name: normalizedPayName,
+        icon: payIcon
+      };
+      paymentMethods.push(payment);
+    }
+
+    importedExpenses.push({
+      id: rawId || `exp_sheet_${Date.now()}_${index}`,
+      date: rawDate || new Date().toISOString().slice(0, 10),
+      amount: cleanAmount,
+      currency: (rawCurrency || 'COP').trim(),
+      categoryId: category.id,
+      subcategoryId,
+      paymentMethodId: payment.id,
+      note: String(rawNote || '').trim(),
+      createdAt: rawCreatedAt || new Date().toISOString(),
+      syncedToSheets: true
+    });
+  });
+
+  return {
+    expenses: importedExpenses,
+    categories,
+    paymentMethods
+  };
+};
+
+/**
  * Local file export helpers (CSV and JSON) that work 100% offline without Google account
  */
 export const exportExpensesToLocalCSV = ({

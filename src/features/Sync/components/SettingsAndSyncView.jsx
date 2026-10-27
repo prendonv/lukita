@@ -24,6 +24,7 @@ import { SUPPORTED_CURRENCIES } from '../../Expenses/utils/currencyUtils';
 import {
   requestGoogleAccessToken,
   syncExpensesToGoogleSheet,
+  importExpensesFromGoogleSheet,
   uploadBackupToGoogleDrive,
   downloadBackupFromGoogleDrive,
   exportExpensesToLocalCSV,
@@ -183,24 +184,60 @@ export const SettingsAndSyncView = () => {
     }
   };
 
-  // Restore JSON from Google Drive
+  // Restore JSON from Google Drive OR automatically import rows from Google Sheets
   const handleRestoreFromDrive = async () => {
     const activeClientId = clientIdInput.trim() || settings.googleClientId;
     if (!activeClientId) {
       setShowGuide(true);
-      showToast('Configura tu Client ID para restaurar desde Google Drive.', 'error');
+      showToast('Configura tu Client ID para restaurar desde Google.', 'error');
       return;
     }
 
     setIsRestoringDrive(true);
     try {
       const token = await requestGoogleAccessToken(activeClientId);
+      const targetSheetId =
+        sheetIdInput.trim() || settings.googleSpreadsheetId;
+
+      // 1. Try restoring from Google Sheets first if user has a Spreadsheet ID configured
+      if (targetSheetId) {
+        try {
+          const sheetRecovered = await importExpensesFromGoogleSheet({
+            accessToken: token,
+            spreadsheetId: targetSheetId,
+            existingCategories: categories,
+            existingPaymentMethods: paymentMethods
+          });
+
+          await restoreBackupData({
+            expenses: sheetRecovered.expenses,
+            categories: sheetRecovered.categories,
+            paymentMethods: sheetRecovered.paymentMethods,
+            settings: {
+              ...settings,
+              googleClientId: activeClientId,
+              googleSpreadsheetId: targetSheetId,
+              googleSpreadsheetUrl: `https://docs.google.com/spreadsheets/d/${targetSheetId}`
+            }
+          });
+
+          showToast(
+            `¡Recuperados ${sheetRecovered.expenses.length} gastos y tus categorías desde Google Sheets!`,
+            'success'
+          );
+          return;
+        } catch (sheetErr) {
+          console.warn('Fallback to Drive JSON backup:', sheetErr);
+        }
+      }
+
+      // 2. Otherwise fallback to Drive JSON backup file
       const backupPayload = await downloadBackupFromGoogleDrive({
         accessToken: token
       });
       await restoreBackupData(backupPayload);
     } catch (err) {
-      showToast(err.message || 'Error al restaurar desde Google Drive', 'error');
+      showToast(err.message || 'Error al restaurar tus datos desde Google', 'error');
     } finally {
       setIsRestoringDrive(false);
     }
@@ -456,7 +493,7 @@ export const SettingsAndSyncView = () => {
               ) : (
                 <CloudArrowDown size={18} weight="bold" />
               )}
-              <span>Restaurar de Drive</span>
+              <span>Restaurar de Sheets / Drive</span>
             </button>
           </div>
         </div>
