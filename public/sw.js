@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lukita-offline-v7';
+const CACHE_NAME = 'lukita-offline-v8';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -31,14 +31,14 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  // For HTML navigation requests, always try Network First so new deployments
-  // never load a stale index.html pointing to old JS bundle hashes.
+  // For HTML navigation requests, bypass browser HTTP disk cache when online
+  // so new deployments are always picked up immediately on iPhone.
   if (
     event.request.mode === 'navigate' ||
     event.request.destination === 'document'
   ) {
     event.respondWith(
-      fetch(event.request)
+      fetch(event.request, { cache: 'no-store' })
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             const copy = networkResponse.clone();

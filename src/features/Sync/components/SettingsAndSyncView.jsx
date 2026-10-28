@@ -506,6 +506,31 @@ export const SettingsAndSyncView = () => {
             <ArrowSquareOut size={15} weight="bold" />
           </a>
         )}
+
+        <div className={styles.versionRow}>
+          <span>Lukita v1.2 · Sincronización Espejo Activa</span>
+          <button
+            type="button"
+            className={styles.forceUpdateLink}
+            onClick={async () => {
+              if ('serviceWorker' in navigator) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                for (const r of regs) {
+                  await r.unregister();
+                }
+              }
+              if ('caches' in window) {
+                const keys = await caches.keys();
+                for (const k of keys) {
+                  await caches.delete(k);
+                }
+              }
+              window.location.reload();
+            }}
+          >
+            Refrescar app
+          </button>
+        </div>
       </div>
 
       {/* 2. Local Offline Export & Backup (AirDrop / Archivos iOS) */}

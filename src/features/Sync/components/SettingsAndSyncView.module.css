@@ -192,6 +192,22 @@
   padding-top: 4px;
 }
 
+.versionRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.forceUpdateLink {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--accent-primary);
+}
+
 .localActionsGrid {
   display: flex;
   flex-direction: column;

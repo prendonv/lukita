@@ -19,6 +19,14 @@ document.addEventListener(
 
 // Register Offline Service Worker for 100% Local-First iPhone PWA support
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) {
+      refreshing = true;
+      window.location.reload();
+    }
+  });
+
   window.addEventListener('load', () => {
     navigator.serviceWorker
       .register('./sw.js', { updateViaCache: 'none' })
