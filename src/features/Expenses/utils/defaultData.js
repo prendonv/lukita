@@ -123,6 +123,7 @@ export const DEFAULT_SETTINGS = {
   defaultCurrency: 'COP',
   activeCurrencies: ['COP', 'USD', 'EUR'],
   theme: 'system',
+  appsScriptUrl: '',
   googleClientId: '',
   googleSpreadsheetId: '',
   googleSpreadsheetUrl: '',

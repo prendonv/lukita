@@ -9,6 +9,238 @@ const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/drive.file'
 ].join(' ');
 
+const TOKEN_STORAGE_KEY = 'lukita_google_oauth_token';
+
+/**
+ * Zero-Login Google Apps Script Bridge:
+ * Sends the full mirror of local expenses + full backup payload directly to the user's
+ * Google Sheet Web App URL without requiring any OAuth popup or token expiration.
+ */
+export const syncViaAppsScriptWebhook = async ({
+  appsScriptUrl,
+  expenses,
+  categories,
+  paymentMethods,
+  settings
+}) => {
+  if (!appsScriptUrl || !appsScriptUrl.trim()) {
+    throw new Error('Configura primero la URL de tu Puente Apps Script.');
+  }
+
+  const catMap = new Map(categories.map((c) => [c.id, c]));
+  const payMap = new Map(paymentMethods.map((p) => [p.id, p]));
+
+  const sortedForSheet = [...expenses].sort((a, b) => {
+    if (a.date !== b.date) return a.date.localeCompare(b.date);
+    return (a.createdAt || '').localeCompare(b.createdAt || '');
+  });
+
+  const rows = sortedForSheet.map((exp) => {
+    const category = catMap.get(exp.categoryId);
+    const subcategory = category?.subcategories?.find(
+      (s) => s.id === exp.subcategoryId
+    );
+    const paymentMethod = payMap.get(exp.paymentMethodId);
+
+    return [
+      exp.id,
+      exp.date,
+      exp.amount,
+      exp.currency,
+      category ? `${category.emoji} ${category.name}` : 'Sin categoría',
+      subcategory ? subcategory.name : '',
+      paymentMethod ? `${paymentMethod.icon} ${paymentMethod.name}` : 'Otro',
+      exp.note || '',
+      exp.createdAt || ''
+    ];
+  });
+
+  const response = await fetch(appsScriptUrl.trim(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'text/plain;charset=utf-8'
+    },
+    body: JSON.stringify({
+      action: 'SYNC_MIRROR',
+      rows,
+      backup: {
+        app: 'Lukita',
+        version: '1.3.0',
+        exportedAt: new Date().toISOString(),
+        expenses,
+        categories,
+        paymentMethods,
+        settings
+      }
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error('No se pudo conectar con tu Puente Apps Script.');
+  }
+
+  return {
+    syncedCount: expenses.length,
+    syncedIds: expenses.map((e) => e.id)
+  };
+};
+
+/**
+ * Restores expenses and categories directly from the user's Google Apps Script Web App URL
+ * without any login popup.
+ */
+export const restoreViaAppsScriptWebhook = async ({
+  appsScriptUrl,
+  existingCategories = [],
+  existingPaymentMethods = []
+}) => {
+  if (!appsScriptUrl || !appsScriptUrl.trim()) {
+    throw new Error('Configura primero la URL de tu Puente Apps Script.');
+  }
+
+  const url = new URL(appsScriptUrl.trim());
+  url.searchParams.set('action', 'READ_ALL');
+
+  const response = await fetch(url.toString(), {
+    method: 'GET'
+  });
+
+  if (!response.ok) {
+    throw new Error('Error al leer datos desde tu Puente Apps Script.');
+  }
+
+  const data = await response.json();
+
+  // If the script has a full JSON snapshot stored in Drive/Properties, use it directly
+  if (data.backup && Array.isArray(data.backup.expenses)) {
+    return data.backup;
+  }
+
+  // Otherwise reconstruct from the spreadsheet rows returned by the script
+  const rows = data.rows || [];
+  const categories = existingCategories.map((c) => ({
+    ...c,
+    subcategories: [...(c.subcategories || [])]
+  }));
+  const paymentMethods = [...existingPaymentMethods];
+
+  const PALETTE = [
+    '#10B981',
+    '#3B82F6',
+    '#8B5CF6',
+    '#F59E0B',
+    '#EC4899',
+    '#06B6D4',
+    '#F43F5E',
+    '#14B8A6'
+  ];
+
+  const splitEmojiAndText = (rawStr, fallbackEmoji = '🏷️') => {
+    const trimmed = String(rawStr || '').trim();
+    if (!trimmed) return { emoji: fallbackEmoji, name: 'General' };
+    const parts = trimmed.split(' ');
+    if (parts.length > 1 && parts[0].length <= 4 && !/^[a-zA-Z0-9]+$/.test(parts[0])) {
+      return {
+        emoji: parts[0],
+        name: parts.slice(1).join(' ').trim()
+      };
+    }
+    return { emoji: fallbackEmoji, name: trimmed };
+  };
+
+  const importedExpenses = [];
+
+  rows.forEach((row, index) => {
+    const [
+      rawId,
+      rawDate,
+      rawAmount,
+      rawCurrency,
+      rawCategory,
+      rawSubcategory,
+      rawPayment,
+      rawNote,
+      rawCreatedAt
+    ] = row;
+
+    const cleanAmount = Number(String(rawAmount || '0').replace(/[^0-9.-]+/g, ''));
+    if (!cleanAmount || cleanAmount <= 0) return;
+
+    const { emoji: catEmoji, name: catName } = splitEmojiAndText(rawCategory, '🏷️');
+    let category = categories.find(
+      (c) => c.name.toLowerCase() === catName.toLowerCase()
+    );
+
+    if (!category) {
+      category = {
+        id: `cat_imp_${Date.now()}_${index}`,
+        name: catName,
+        emoji: catEmoji,
+        color: PALETTE[categories.length % PALETTE.length],
+        subcategories: []
+      };
+      categories.push(category);
+    }
+
+    let subcategoryId = null;
+    const subName = String(rawSubcategory || '').trim();
+    if (subName) {
+      let sub = category.subcategories.find(
+        (s) => s.name.toLowerCase() === subName.toLowerCase()
+      );
+      if (!sub) {
+        sub = {
+          id: `sub_imp_${Date.now()}_${index}`,
+          name: subName
+        };
+        category.subcategories.push(sub);
+      }
+      subcategoryId = sub.id;
+    }
+
+    const { emoji: payIcon, name: payName } = splitEmojiAndText(rawPayment, '💳');
+    const normalizedPayName =
+      payName === 'Nequi / Transferencia' ? 'Transferencia' : payName;
+
+    let payment = paymentMethods.find(
+      (p) => p.name.toLowerCase() === normalizedPayName.toLowerCase()
+    );
+
+    if (!payment) {
+      payment = {
+        id: `pay_imp_${Date.now()}_${index}`,
+        name: normalizedPayName,
+        icon: payIcon
+      };
+      paymentMethods.push(payment);
+    }
+
+    const formattedDate =
+      typeof rawDate === 'string' && rawDate.includes('T')
+        ? rawDate.slice(0, 10)
+        : String(rawDate || '').slice(0, 10);
+
+    importedExpenses.push({
+      id: rawId || `exp_sheet_${Date.now()}_${index}`,
+      date: formattedDate || new Date().toISOString().slice(0, 10),
+      amount: cleanAmount,
+      currency: (rawCurrency || 'COP').trim(),
+      categoryId: category.id,
+      subcategoryId,
+      paymentMethodId: payment.id,
+      note: String(rawNote || '').trim(),
+      createdAt: rawCreatedAt || new Date().toISOString(),
+      syncedToSheets: true
+    });
+  });
+
+  return {
+    expenses: importedExpenses,
+    categories,
+    paymentMethods
+  };
+};
+
 let gisLoadedPromise = null;
 
 /**
@@ -43,12 +275,29 @@ export const loadGoogleIdentityScript = () => {
 
 /**
  * Requests an OAuth2 access token from the user using their Client ID.
+ * Caches the token in localStorage for its 1-hour lifetime to avoid repeated popups.
  */
 export const requestGoogleAccessToken = async (clientId) => {
   if (!clientId || !clientId.trim()) {
     throw new Error(
       'Falta configurar tu Client ID de Google Cloud. Ingrésalo en la sección de Configuración.'
     );
+  }
+
+  try {
+    const cachedRaw = localStorage.getItem(TOKEN_STORAGE_KEY);
+    if (cachedRaw) {
+      const cached = JSON.parse(cachedRaw);
+      if (
+        cached.clientId === clientId.trim() &&
+        cached.accessToken &&
+        cached.expiresAt > Date.now() + 60_000
+      ) {
+        return cached.accessToken;
+      }
+    }
+  } catch {
+    // Ignore storage parse error
   }
 
   await loadGoogleIdentityScript();
@@ -67,11 +316,20 @@ export const requestGoogleAccessToken = async (clientId) => {
             );
             return;
           }
+          const expiresInSec = Number(response.expires_in) || 3500;
+          localStorage.setItem(
+            TOKEN_STORAGE_KEY,
+            JSON.stringify({
+              clientId: clientId.trim(),
+              accessToken: response.access_token,
+              expiresAt: Date.now() + expiresInSec * 1000
+            })
+          );
           resolve(response.access_token);
         }
       });
 
-      tokenClient.requestAccessToken({ prompt: 'consent' });
+      tokenClient.requestAccessToken({ prompt: '' });
     } catch (err) {
       reject(
         new Error(

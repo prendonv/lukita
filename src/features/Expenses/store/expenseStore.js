@@ -13,6 +13,7 @@ import {
 } from '../services/localDb';
 import { getCurrentYearMonth, shiftYearMonth } from '../utils/dateUtils';
 import { DEFAULT_SETTINGS } from '../utils/defaultData';
+import { syncViaAppsScriptWebhook } from '../../Sync/services/googleCloudService';
 
 export const useExpenseStore = create((set, get) => ({
   isInitialized: false,
@@ -77,6 +78,28 @@ export const useExpenseStore = create((set, get) => ({
 
   setEditingExpense: (expenseOrNull) => set({ editingExpense: expenseOrNull }),
 
+  // Silent Zero-Login Background Auto-Sync if Apps Script Webhook URL is configured
+  triggerSilentWebhookSync: async () => {
+    const state = get();
+    const webhookUrl = state.settings?.appsScriptUrl?.trim();
+    if (!webhookUrl) return;
+
+    try {
+      const res = await syncViaAppsScriptWebhook({
+        appsScriptUrl: webhookUrl,
+        expenses: state.expenses,
+        categories: state.categories,
+        paymentMethods: state.paymentMethods,
+        settings: state.settings
+      });
+      if (res?.syncedIds) {
+        await get().markExpensesSynced(res.syncedIds);
+      }
+    } catch {
+      // Fail silently if offline; user can sync next time online
+    }
+  },
+
   // Expense CRUD
   saveExpense: async (expenseInput) => {
     const isUpdate = Boolean(expenseInput.id);
@@ -114,6 +137,7 @@ export const useExpenseStore = create((set, get) => ({
       isUpdate ? 'Gasto actualizado localmente' : 'Gasto guardado al instante',
       'success'
     );
+    get().triggerSilentWebhookSync();
     return expense;
   },
 
@@ -124,6 +148,7 @@ export const useExpenseStore = create((set, get) => ({
       editingExpense: null
     });
     get().showToast('Registro eliminado de tu dispositivo', 'info');
+    get().triggerSilentWebhookSync();
   },
 
   markExpensesSynced: async (ids) => {

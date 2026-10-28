@@ -25,6 +25,8 @@ import {
   requestGoogleAccessToken,
   syncExpensesToGoogleSheet,
   importExpensesFromGoogleSheet,
+  syncViaAppsScriptWebhook,
+  restoreViaAppsScriptWebhook,
   uploadBackupToGoogleDrive,
   downloadBackupFromGoogleDrive,
   exportExpensesToLocalCSV,
@@ -58,6 +60,9 @@ export const SettingsAndSyncView = () => {
   const showToast = useExpenseStore((s) => s.showToast);
 
   // Google Cloud Sync state
+  const [appsScriptUrlInput, setAppsScriptUrlInput] = useState(
+    settings.appsScriptUrl || ''
+  );
   const [clientIdInput, setClientIdInput] = useState(
     settings.googleClientId || ''
   );
@@ -84,19 +89,53 @@ export const SettingsAndSyncView = () => {
 
   const handleSaveGoogleConfig = async () => {
     await updateSettings({
+      appsScriptUrl: appsScriptUrlInput.trim(),
       googleClientId: clientIdInput.trim(),
       googleSpreadsheetId: sheetIdInput.trim()
     });
     showToast('Configuración de Google guardada en tu dispositivo', 'success');
   };
 
-  // Sync to Google Sheets
+  // Sync to Google Sheets (Prefers Zero-Login Apps Script Webhook if configured)
   const handleSyncToGoogleSheets = async () => {
+    const activeWebhook =
+      appsScriptUrlInput.trim() || settings.appsScriptUrl?.trim();
+
+    if (activeWebhook) {
+      setIsSyncingSheets(true);
+      try {
+        const result = await syncViaAppsScriptWebhook({
+          appsScriptUrl: activeWebhook,
+          expenses,
+          categories,
+          paymentMethods,
+          settings
+        });
+        await updateSettings({
+          appsScriptUrl: activeWebhook,
+          lastSheetsSyncAt: new Date().toISOString()
+        });
+        await markExpensesSynced(result.syncedIds);
+        showToast(
+          `¡Sincronizado sin login! Tu hoja refleja tus ${result.syncedCount} gastos.`,
+          'success'
+        );
+      } catch (err) {
+        showToast(
+          err.message || 'Error al sincronizar con tu Puente Apps Script',
+          'error'
+        );
+      } finally {
+        setIsSyncingSheets(false);
+      }
+      return;
+    }
+
     const activeClientId = clientIdInput.trim() || settings.googleClientId;
     if (!activeClientId) {
       setShowGuide(true);
       showToast(
-        'Primero pega tu Client ID gratuito de Google Cloud (ver guía paso a paso).',
+        'Pega la URL de tu Puente Apps Script (Sin Login) o tu Client ID de Google Cloud.',
         'error'
       );
       return;
@@ -179,6 +218,40 @@ export const SettingsAndSyncView = () => {
 
   // Restore JSON from Google Drive OR automatically import rows from Google Sheets
   const handleRestoreFromDrive = async () => {
+    const activeWebhook =
+      appsScriptUrlInput.trim() || settings.appsScriptUrl?.trim();
+
+    if (activeWebhook) {
+      setIsRestoringDrive(true);
+      try {
+        const recovered = await restoreViaAppsScriptWebhook({
+          appsScriptUrl: activeWebhook,
+          existingCategories: categories,
+          existingPaymentMethods: paymentMethods
+        });
+        await restoreBackupData({
+          ...recovered,
+          settings: {
+            ...settings,
+            ...(recovered.settings || {}),
+            appsScriptUrl: activeWebhook
+          }
+        });
+        showToast(
+          `¡Restaurados ${recovered.expenses?.length || 0} gastos sin login!`,
+          'success'
+        );
+      } catch (err) {
+        showToast(
+          err.message || 'Error al restaurar desde tu Puente Apps Script',
+          'error'
+        );
+      } finally {
+        setIsRestoringDrive(false);
+      }
+      return;
+    }
+
     const activeClientId = clientIdInput.trim() || settings.googleClientId;
     if (!activeClientId) {
       setShowGuide(true);
@@ -409,8 +482,31 @@ export const SettingsAndSyncView = () => {
         )}
 
         <div className={styles.formGroup}>
+          <label className={styles.inputLabel} htmlFor="apps-script-url">
+            ⚡ URL de tu Puente Apps Script (Recomendado — 100% Sin Login y Auto-Sync)
+          </label>
+          <div className={styles.inlineInputRow}>
+            <input
+              id="apps-script-url"
+              type="url"
+              value={appsScriptUrlInput}
+              onChange={(e) => setAppsScriptUrlInput(e.target.value)}
+              placeholder="https://script.google.com/macros/s/.../exec"
+              className={styles.textInput}
+            />
+            <button
+              type="button"
+              className={styles.secondaryBtn}
+              onClick={handleSaveGoogleConfig}
+            >
+              Guardar URL
+            </button>
+          </div>
+        </div>
+
+        <div className={styles.formGroup}>
           <label className={styles.inputLabel} htmlFor="google-client-id">
-            Tu Google OAuth Client ID
+            Opcional: Tu Google OAuth Client ID (Solo si no usas Apps Script)
           </label>
           <input
             id="google-client-id"
