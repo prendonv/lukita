@@ -111,7 +111,7 @@ export const useExpenseStore = create((set, get) => ({
       subcategoryId: expenseInput.subcategoryId || null,
       paymentMethodId: expenseInput.paymentMethodId,
       date: expenseInput.date,
-      note: (expenseInput.note || '').trim(),
+      note: (expenseInput.note || '').trim().slice(0, 120),
       createdAt: expenseInput.createdAt || new Date().toISOString(),
       syncedToSheets: false
     };

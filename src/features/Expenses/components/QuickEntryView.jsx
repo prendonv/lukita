@@ -266,15 +266,30 @@ export const QuickEntryView = () => {
           )}
         </div>
 
-        <div className={styles.noteInputRow}>
-          <NotePencil size={17} className={styles.noteIcon} />
+        <div className={styles.noteInputBox}>
+          <div className={styles.noteHeaderRow}>
+            <label htmlFor="expense-description" className={styles.noteLabel}>
+              <NotePencil size={15} weight="bold" className={styles.noteIcon} />
+              <span>Descripción del gasto (Opcional)</span>
+            </label>
+            <span
+              className={`${styles.charCounter} ${
+                note.length >= 110 ? styles.charCounterNearLimit : ''
+              }`}
+            >
+              {note.length}/120
+            </span>
+          </div>
           <input
+            id="expense-description"
             type="text"
             value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Añadir nota opcional (ej. Almuerzo con amigos)..."
+            onChange={(e) => setNote(e.target.value.slice(0, 120))}
+            placeholder={`¿En qué gastaste en ${
+              activeCategory?.name || 'esta categoría'
+            }? (Opcional)`}
             className={styles.noteInput}
-            maxLength={90}
+            maxLength={120}
           />
         </div>
       </div>
